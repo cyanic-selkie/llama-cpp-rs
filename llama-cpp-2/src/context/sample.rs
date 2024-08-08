@@ -69,6 +69,33 @@ impl LlamaContext<'_> {
         LlamaToken(token)
     }
 
+    /// Randomly selects a token from the candidates based on their probabilities using the RNG of ctx..
+    ///
+    /// Most of the time [`LlamaTokenDataArray::sample_softmax`] or [`LlamaTokenDataArray::sample_token`] should be used instead.
+    ///
+    /// # Panics
+    ///
+    /// - if `token_data` is empty
+    #[must_use]
+    pub fn sample_token(&mut self, mut token_data: LlamaTokenDataArray) -> LlamaToken {
+        assert!(!token_data.data.is_empty(), "no tokens");
+        let mut data_arr = llama_cpp_sys_2::llama_token_data_array {
+            data: token_data
+                .data
+                .as_mut_ptr()
+                .cast::<llama_cpp_sys_2::llama_token_data>(),
+            size: token_data.data.len(),
+            sorted: token_data.sorted,
+        };
+        let token = unsafe {
+            llama_cpp_sys_2::llama_sample_token(
+                self.context.as_ptr(),
+                std::ptr::addr_of_mut!(data_arr),
+            )
+        };
+        LlamaToken(token)
+    }
+
     /// See [`LlamaTokenDataArray::sample_tail_free`]
     pub fn sample_tail_free(
         &mut self,

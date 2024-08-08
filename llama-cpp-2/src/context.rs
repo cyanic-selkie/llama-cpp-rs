@@ -58,6 +58,12 @@ impl<'model> LlamaContext<'model> {
         unsafe { llama_cpp_sys_2::llama_n_batch(self.context.as_ptr()) }
     }
 
+    /// Gets the max number of tokens in a batch.
+    #[must_use]
+    pub fn n_ubatch(&self) -> u32 {
+        unsafe { llama_cpp_sys_2::llama_n_ubatch(self.context.as_ptr()) }
+    }
+
     /// Gets the size of the context.
     #[must_use]
     pub fn n_ctx(&self) -> u32 {
