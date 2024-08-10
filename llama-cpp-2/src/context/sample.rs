@@ -69,7 +69,7 @@ impl LlamaContext<'_> {
         LlamaToken(token)
     }
 
-    /// Randomly selects a token from the candidates based on their probabilities using the RNG of ctx..
+    /// Randomly selects a token from the candidates based on their probabilities using the RNG of ctx.
     ///
     /// Most of the time [`LlamaTokenDataArray::sample_softmax`] or [`LlamaTokenDataArray::sample_token`] should be used instead.
     ///

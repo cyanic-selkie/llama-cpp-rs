@@ -86,16 +86,210 @@ compile_error!("feature \"vulkan\" cannot be enabled alongside other GPU based f
 
 static LLAMA_PATH: Lazy<PathBuf> = Lazy::new(|| PathBuf::from("./llama.cpp"));
 
+fn set_up_ios_build(cx: &mut Build, cxx: &mut Build) {
+    let target = env::var("TARGET").expect("TARGET not set");
+    let sdk = if target.contains("x86_64") || target.contains("sim") {
+        "iphonesimulator"
+    } else {
+        "iphoneos"
+    };
+
+    // Get the SDK path
+    let sdk_path = String::from_utf8(
+        Command::new("xcrun")
+            .args(&["--sdk", sdk, "--show-sdk-path"])
+            .output()
+            .expect("failed to execute xcrun")
+            .stdout,
+    )
+    .expect("invalid sdk path")
+    .trim()
+    .to_string();
+
+    cx.flag(&format!("-isysroot{}", sdk_path))
+        .flag("-fembed-bitcode");
+    cxx.flag(&format!("-isysroot{}", sdk_path))
+        .flag("-fembed-bitcode");
+}
+
+fn compile_bindings_ios(
+    out_path: &Path,
+    llama_header_path: &Path,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    println!("Generating bindings for iOS..");
+
+    let target = env::var("TARGET").expect("TARGET not set");
+    let sdk = if target.contains("x86_64") || target.contains("sim") {
+        "iphonesimulator"
+    } else {
+        "iphoneos"
+    };
+
+    let sdk_path = String::from_utf8(
+        Command::new("xcrun")
+            .args(&["--sdk", sdk, "--show-sdk-path"])
+            .output()
+            .expect("failed to execute xcrun")
+            .stdout,
+    )
+    .expect("invalid sdk path")
+    .trim()
+    .to_string();
+
+    let clang_args = vec![format!("-isysroot{}", sdk_path)];
+
+    let includes = [llama_header_path.join("ggml").join("include")];
+
+    let bindings = bindgen::Builder::default()
+        .clang_args(clang_args)
+        .clang_args(includes.map(|path| format!("-I{}", path.to_string_lossy())))
+        .header(
+            llama_header_path
+                .join("include")
+                .join("llama.h")
+                .to_string_lossy(),
+        )
+        .derive_partialeq(true)
+        .allowlist_function("ggml_.*")
+        .allowlist_type("ggml_.*")
+        .allowlist_function("llama_.*")
+        .allowlist_type("llama_.*")
+        .prepend_enum_name(false);
+
+    let bindings = bindings.generate()?;
+
+    bindings.write_to_file(out_path.join("bindings.rs"))?;
+
+    Ok(())
+}
+
+fn set_up_android_build(cx: &mut Build, cxx: &mut Build) {
+    let sysroot_path =
+        PathBuf::from(&env::var("CARGO_NDK_SYSROOT_PATH").expect("CARGO_NDK_SYSROOT_PATH not set"));
+    let android_target =
+        env::var("CARGO_NDK_ANDROID_TARGET").expect("CARGO_NDK_ANDROID_TARGET should be set");
+    let android_platform = env::var("CARGO_NDK_ANDROID_PLATFORM")
+        .expect("CARGO_NDK_ANDROID_PLATFORM should be set")
+        .parse::<usize>()
+        .expect("CARGO_NDK_ANDROID_PLATFORM should be a valid positive integer");
+
+    if android_platform < 23 {
+        panic!("Unsupported android platform: {android_platform}, it has to be >= 23")
+    }
+
+    let ndk_home = sysroot_path
+        .parent()
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .and_then(|p| p.parent())
+        .expect("Failed to derive ANDROID_NDK_HOME");
+    let toolchain_file = format!("{}/build/cmake/android.toolchain.cmake", ndk_home.display());
+
+    cx.define("CMAKE_TOOLCHAIN_FILE", &*toolchain_file)
+        .define("ANDROID_ABI", &*android_target)
+        .define("ANDROID_PLATFORM", &*android_platform.to_string());
+
+    cxx.define("CMAKE_TOOLCHAIN_FILE", &*toolchain_file)
+        .define("ANDROID_ABI", &*android_target)
+        .define("ANDROID_PLATFORM", &*android_platform.to_string());
+
+    let target_arch = match android_target.as_str() {
+        "arm64-v8a" => "aarch64-linux-android",
+        "armeabi-v7a" => "armv7a-linux-androideabi",
+        "x86" => "i686-linux-android",
+        "x86_64" => "x86_64-linux-android",
+        _ => panic!("Unsupported Android target: {}", android_target),
+    };
+
+    let android_toolchain = PathBuf::from(&sysroot_path)
+        .parent()
+        .map(|p| p.join("bin"))
+        .expect("Failed to derive NDK toolchain bin path from CARGO_NDK_ANDROID_SYSROOT_PATH");
+
+    let android_cc = format!(
+        "{}/{}{}-clang",
+        android_toolchain.display(),
+        target_arch,
+        android_platform
+    );
+    let android_cxx = format!(
+        "{}/{}{}-clang++",
+        android_toolchain.display(),
+        target_arch,
+        android_platform
+    );
+
+    cx.compiler(&android_cc);
+    cxx.compiler(&android_cxx);
+}
+
+fn compile_bindings_android(
+    out_path: &Path,
+    llama_header_path: &Path,
+) -> Result<(), Box<dyn std::error::Error + 'static>> {
+    println!("Generating bindings for Android..");
+
+    let sysroot_path = env::var("CARGO_NDK_SYSROOT_PATH").expect("CARGO_NDK_SYSROOT_PATH not set");
+    let android_target =
+        env::var("CARGO_NDK_ANDROID_TARGET").expect("CARGO_NDK_ANDROID_TARGET not set");
+    let android_platform = env::var("CARGO_NDK_ANDROID_PLATFORM")
+        .expect("CARGO_NDK_ANDROID_PLATFORM should be set")
+        .parse::<usize>()
+        .expect("CARGO_NDK_ANDROID_PLATFORM should be a valid positive integer");
+
+    if android_platform < 23 {
+        panic!("Unsupported android platform: {android_platform}, it has to be >= 23")
+    }
+
+    let target_arch = match android_target.as_str() {
+        "arm64-v8a" => "aarch64-linux-android",
+        "armeabi-v7a" => "arm-linux-androideabi",
+        "x86" => "i686-linux-android",
+        "x86_64" => "x86_64-linux-android",
+        _ => panic!("Unsupported Android target: {}", android_target),
+    };
+
+    let toolchain_path = PathBuf::from(&sysroot_path).join(format!("usr/include"));
+    let target_specific_path = toolchain_path.join(target_arch);
+
+    let clang_args = vec![
+        format!("--target={}-android{}", target_arch, android_platform),
+        format!("-I{}", toolchain_path.display()),
+        format!("-I{}", target_specific_path.display()),
+    ];
+
+    let includes = [llama_header_path.join("ggml").join("include")];
+
+    let bindings = bindgen::Builder::default()
+        .clang_args(clang_args)
+        .clang_args(includes.map(|path| format!("-I{}", path.to_string_lossy())))
+        .header(
+            llama_header_path
+                .join("include")
+                .join("llama.h")
+                .to_string_lossy(),
+        )
+        .derive_partialeq(true)
+        .allowlist_function("ggml_.*")
+        .allowlist_type("ggml_.*")
+        .allowlist_function("llama_.*")
+        .allowlist_type("llama_.*")
+        .prepend_enum_name(false)
+        .generate()?;
+
+    bindings.write_to_file(out_path.join("bindings.rs"))?;
+
+    Ok(())
+}
+
 fn compile_bindings(
     out_path: &Path,
     llama_header_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error + 'static>> {
     println!("Generating bindings..");
-    
-    let includes = [
-        llama_header_path.join("ggml").join("include"),
-    ];
-    
+
+    let includes = [llama_header_path.join("ggml").join("include")];
+
     let bindings = bindgen::Builder::default()
         .clang_args(includes.map(|path| format!("-I{}", path.to_string_lossy())))
         .header(
@@ -154,10 +348,19 @@ impl ParseCallbacks for GGMLLinkRename {
 
 /// Add platform appropriate flags and definitions present in all compilation configurations.
 fn push_common_flags(cx: &mut Build, cxx: &mut Build) {
+    let opt_level = env::var("OPT_LEVEL")
+        .map(|x| {
+            x.parse::<u32>()
+                .expect("OPT_LEVEL should be a positive integer")
+        })
+        .unwrap_or_else(|_| 0);
+
     cx.static_flag(true)
+        .opt_level(opt_level)
         .cpp(false)
         .define("GGML_SCHED_MAX_COPIES", "4");
     cxx.static_flag(true)
+        .opt_level(opt_level)
         .cpp(true)
         .define("GGML_SCHED_MAX_COPIES", "4");
 
@@ -623,31 +826,44 @@ fn gen_vulkan_shaders(out_path: impl AsRef<Path>) -> (impl AsRef<Path>, impl AsR
         .cpp(true)
         .get_compiler();
 
-    assert!(!cxx.is_like_msvc(), "Compiling Vulkan GGML with MSVC is not supported at this time.");
+    assert!(
+        !cxx.is_like_msvc(),
+        "Compiling Vulkan GGML with MSVC is not supported at this time."
+    );
 
     let vulkan_shaders_gen_bin = out_path.as_ref().join("vulkan-shaders-gen");
 
     cxx.to_command()
         .args([
-            vulkan_shaders_src.join("vulkan-shaders-gen.cpp").as_os_str(),
-            "-o".as_ref(), vulkan_shaders_gen_bin.as_os_str()
+            vulkan_shaders_src
+                .join("vulkan-shaders-gen.cpp")
+                .as_os_str(),
+            "-o".as_ref(),
+            vulkan_shaders_gen_bin.as_os_str(),
         ])
-        .output().expect("Could not compile Vulkan shader generator");
+        .output()
+        .expect("Could not compile Vulkan shader generator");
 
     let header = out_path.as_ref().join("ggml-vulkan-shaders.hpp");
     let source = out_path.as_ref().join("ggml-vulkan-shaders.cpp");
 
     Command::new(vulkan_shaders_gen_bin)
         .args([
-            "--glslc".as_ref(), "glslc".as_ref(),
-            "--input-dir".as_ref(), vulkan_shaders_src.as_os_str(),
-            "--output-dir".as_ref(), out_path.as_ref().join("vulkan-shaders.spv").as_os_str(),
-            "--target-hpp".as_ref(), header.as_os_str(),
-            "--target-cpp".as_ref(), source.as_os_str(),
-            "--no-clean".as_ref()
+            "--glslc".as_ref(),
+            "glslc".as_ref(),
+            "--input-dir".as_ref(),
+            vulkan_shaders_src.as_os_str(),
+            "--output-dir".as_ref(),
+            out_path.as_ref().join("vulkan-shaders.spv").as_os_str(),
+            "--target-hpp".as_ref(),
+            header.as_os_str(),
+            "--target-cpp".as_ref(),
+            source.as_os_str(),
+            "--no-clean".as_ref(),
         ])
-        .output().expect("Could not run Vulkan shader generator");
-    
+        .output()
+        .expect("Could not run Vulkan shader generator");
+
     (out_path, source)
 }
 
@@ -732,6 +948,11 @@ fn compile_llama(mut cxx: Build, _out_path: impl AsRef<Path>) {
 fn main() {
     let out_path = PathBuf::from(env::var("OUT_DIR").expect("No out dir found"));
 
+    // Detect if we're building for Android or iOS
+    let target = env::var("TARGET").unwrap_or_default();
+    let is_android = target.contains("android");
+    let is_ios = target.contains("ios");
+
     if cfg!(feature = "dynamic_link") {
         println!("cargo:rustc-link-lib=llama");
         println!("cargo:rustc-link-lib=ggml");
@@ -759,10 +980,22 @@ fn main() {
 
     println!("cargo:rerun-if-changed={}", LLAMA_PATH.display());
 
-    compile_bindings(&out_path, &LLAMA_PATH).expect("failed to generate bindings");
-
+    if is_android {
+        compile_bindings_android(&out_path, &LLAMA_PATH)
+            .expect("failed to generate bindings for Android");
+    } else if is_ios {
+        compile_bindings_ios(&out_path, &LLAMA_PATH).expect("failed to generate bindings for iOS");
+    } else {
+        compile_bindings(&out_path, &LLAMA_PATH).expect("failed to generate bindings");
+    }
     let mut cx = Build::new();
     let mut cxx = Build::new();
+
+    if is_android {
+        set_up_android_build(&mut cx, &mut cxx);
+    } else if is_ios {
+        set_up_ios_build(&mut cx, &mut cxx);
+    }
 
     push_common_flags(&mut cx, &mut cxx);
 
@@ -782,7 +1015,7 @@ fn main() {
     } else if cfg!(feature = "blis") {
         compile_blis(&mut cx);
         None
-    } else if cfg!(feature = "metal") && cfg!(target_os = "macos") {
+    } else if cfg!(feature = "metal") && (cfg!(target_os = "macos") || is_ios) {
         compile_metal(&mut cx, &mut cxx);
         None
     } else if cfg!(feature = "hipblas") {
