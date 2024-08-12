@@ -86,83 +86,6 @@ compile_error!("feature \"vulkan\" cannot be enabled alongside other GPU based f
 
 static LLAMA_PATH: Lazy<PathBuf> = Lazy::new(|| PathBuf::from("./llama.cpp"));
 
-fn set_up_ios_build(cx: &mut Build, cxx: &mut Build) {
-    let target = env::var("TARGET").expect("TARGET not set");
-    let sdk = if target.contains("x86_64") || target.contains("sim") {
-        "iphonesimulator"
-    } else {
-        "iphoneos"
-    };
-
-    // Get the SDK path
-    let sdk_path = String::from_utf8(
-        Command::new("xcrun")
-            .args(&["--sdk", sdk, "--show-sdk-path"])
-            .output()
-            .expect("failed to execute xcrun")
-            .stdout,
-    )
-    .expect("invalid sdk path")
-    .trim()
-    .to_string();
-
-    cx.flag(&format!("-isysroot{}", sdk_path))
-        .flag("-fembed-bitcode");
-    cxx.flag(&format!("-isysroot{}", sdk_path))
-        .flag("-fembed-bitcode");
-}
-
-fn compile_bindings_ios(
-    out_path: &Path,
-    llama_header_path: &Path,
-) -> Result<(), Box<dyn std::error::Error + 'static>> {
-    println!("Generating bindings for iOS..");
-
-    let target = env::var("TARGET").expect("TARGET not set");
-    let sdk = if target.contains("x86_64") || target.contains("sim") {
-        "iphonesimulator"
-    } else {
-        "iphoneos"
-    };
-
-    let sdk_path = String::from_utf8(
-        Command::new("xcrun")
-            .args(&["--sdk", sdk, "--show-sdk-path"])
-            .output()
-            .expect("failed to execute xcrun")
-            .stdout,
-    )
-    .expect("invalid sdk path")
-    .trim()
-    .to_string();
-
-    let clang_args = vec![format!("-isysroot{}", sdk_path)];
-
-    let includes = [llama_header_path.join("ggml").join("include")];
-
-    let bindings = bindgen::Builder::default()
-        .clang_args(clang_args)
-        .clang_args(includes.map(|path| format!("-I{}", path.to_string_lossy())))
-        .header(
-            llama_header_path
-                .join("include")
-                .join("llama.h")
-                .to_string_lossy(),
-        )
-        .derive_partialeq(true)
-        .allowlist_function("ggml_.*")
-        .allowlist_type("ggml_.*")
-        .allowlist_function("llama_.*")
-        .allowlist_type("llama_.*")
-        .prepend_enum_name(false);
-
-    let bindings = bindings.generate()?;
-
-    bindings.write_to_file(out_path.join("bindings.rs"))?;
-
-    Ok(())
-}
-
 fn set_up_android_build(cx: &mut Build, cxx: &mut Build) {
     let sysroot_path =
         PathBuf::from(&env::var("CARGO_NDK_SYSROOT_PATH").expect("CARGO_NDK_SYSROOT_PATH not set"));
@@ -984,7 +907,8 @@ fn main() {
         compile_bindings_android(&out_path, &LLAMA_PATH)
             .expect("failed to generate bindings for Android");
     } else if is_ios {
-        compile_bindings_ios(&out_path, &LLAMA_PATH).expect("failed to generate bindings for iOS");
+        // compile_bindings_ios(&out_path, &LLAMA_PATH).expect("failed to generate bindings for iOS");
+        compile_bindings(&out_path, &LLAMA_PATH).expect("failed to generate bindings");
     } else {
         compile_bindings(&out_path, &LLAMA_PATH).expect("failed to generate bindings");
     }
@@ -994,7 +918,7 @@ fn main() {
     if is_android {
         set_up_android_build(&mut cx, &mut cxx);
     } else if is_ios {
-        set_up_ios_build(&mut cx, &mut cxx);
+        // set_up_ios_build(&mut cx, &mut cxx);
     }
 
     push_common_flags(&mut cx, &mut cxx);
