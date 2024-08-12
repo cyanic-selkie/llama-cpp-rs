@@ -683,16 +683,38 @@ fn compile_metal(cx: &mut Build, cxx: &mut Build) {
 
     let target = env::var("TARGET").unwrap_or_default();
     let is_ios = target.contains("ios");
+
+    let (sdk, arch) = if is_ios {
+        if target.contains("x86_64") {
+            ("iphonesimulator", "x86_64")
+        } else if target.contains("sim") {
+            ("iphonesimulator", "arm64")
+        } else {
+            ("iphoneos", "arm64")
+        }
+    } else {
+        (
+            "macosx",
+            if target.contains("x86_64") {
+                "x86_64"
+            } else {
+                "arm64"
+            },
+        )
+    };
+
+    println!(
+        "cargo:warning=Compiling for iOS: {}, SDK: {}, Arch: {}",
+        is_ios, sdk, arch
+    );
+
     // Assemble the ggml metal embed code.
     let ggml_metal_embed_object_path = PathBuf::from(&out_dir).join("ggml-metal-embed.o");
-    let as_status = if is_ios {
-        let sdk = if target.contains("x86_64") || target.contains("sim") {
-            "iphonesimulator"
-        } else {
-            "iphoneos"
-        };
+    let as_status = if is_ios || cfg!(target_os = "macos") {
         Command::new("xcrun")
             .args(&["--sdk", sdk, "as"])
+            .arg("-arch")
+            .arg(arch)
             .arg(&ggml_metal_embed_assembly_path)
             .arg("-o")
             .arg(&ggml_metal_embed_object_path)
@@ -708,12 +730,7 @@ fn compile_metal(cx: &mut Build, cxx: &mut Build) {
 
     // Create a static library for our metal embed code.
     let ggml_metal_embed_library_path = PathBuf::from(&out_dir).join("libggml-metal-embed.a");
-    let ar_status = if is_ios {
-        let sdk = if target.contains("x86_64") || target.contains("sim") {
-            "iphonesimulator"
-        } else {
-            "iphoneos"
-        };
+    let ar_status = if is_ios || cfg!(target_os = "macos") {
         Command::new("xcrun")
             .args(&["--sdk", sdk, "ar"])
             .args(&[
@@ -732,7 +749,6 @@ fn compile_metal(cx: &mut Build, cxx: &mut Build) {
             .status()
     };
     ar_status.expect("Failed to create static library from ggml-metal-embed object file");
-
     println!("cargo:rustc-link-lib=framework=Metal");
     println!("cargo:rustc-link-lib=framework=Foundation");
     println!("cargo:rustc-link-lib=framework=MetalPerformanceShaders");
