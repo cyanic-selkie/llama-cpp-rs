@@ -906,9 +906,6 @@ fn main() {
     if is_android {
         compile_bindings_android(&out_path, &LLAMA_PATH)
             .expect("failed to generate bindings for Android");
-    } else if is_ios {
-        // compile_bindings_ios(&out_path, &LLAMA_PATH).expect("failed to generate bindings for iOS");
-        compile_bindings(&out_path, &LLAMA_PATH).expect("failed to generate bindings");
     } else {
         compile_bindings(&out_path, &LLAMA_PATH).expect("failed to generate bindings");
     }
@@ -917,8 +914,6 @@ fn main() {
 
     if is_android {
         set_up_android_build(&mut cx, &mut cxx);
-    } else if is_ios {
-        // set_up_ios_build(&mut cx, &mut cxx);
     }
 
     push_common_flags(&mut cx, &mut cxx);
