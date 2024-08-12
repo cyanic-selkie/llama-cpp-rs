@@ -681,25 +681,57 @@ fn compile_metal(cx: &mut Build, cxx: &mut Build) {
     )
     .expect("Failed to write ggml metal embed assembly code");
 
+    let target = env::var("TARGET").unwrap_or_default();
+    let is_ios = target.contains("ios");
     // Assemble the ggml metal embed code.
     let ggml_metal_embed_object_path = PathBuf::from(&out_dir).join("ggml-metal-embed.o");
-    Command::new("as")
-        .arg(&ggml_metal_embed_assembly_path)
-        .arg("-o")
-        .arg(&ggml_metal_embed_object_path)
-        .status()
-        .expect("Failed to assemble ggml-metal-embed file");
+    let as_status = if is_ios {
+        let sdk = if target.contains("x86_64") || target.contains("sim") {
+            "iphonesimulator"
+        } else {
+            "iphoneos"
+        };
+        Command::new("xcrun")
+            .args(&["--sdk", sdk, "as"])
+            .arg(&ggml_metal_embed_assembly_path)
+            .arg("-o")
+            .arg(&ggml_metal_embed_object_path)
+            .status()
+    } else {
+        Command::new("as")
+            .arg(&ggml_metal_embed_assembly_path)
+            .arg("-o")
+            .arg(&ggml_metal_embed_object_path)
+            .status()
+    };
+    as_status.expect("Failed to assemble ggml-metal-embed file");
 
     // Create a static library for our metal embed code.
     let ggml_metal_embed_library_path = PathBuf::from(&out_dir).join("libggml-metal-embed.a");
-    Command::new("ar")
-        .args([
-            "crus",
-            ggml_metal_embed_library_path.to_str().unwrap(),
-            ggml_metal_embed_object_path.to_str().unwrap(),
-        ])
-        .status()
-        .expect("Failed to create static library from ggml-metal-embed object file");
+    let ar_status = if is_ios {
+        let sdk = if target.contains("x86_64") || target.contains("sim") {
+            "iphonesimulator"
+        } else {
+            "iphoneos"
+        };
+        Command::new("xcrun")
+            .args(&["--sdk", sdk, "ar"])
+            .args(&[
+                "crus",
+                ggml_metal_embed_library_path.to_str().unwrap(),
+                ggml_metal_embed_object_path.to_str().unwrap(),
+            ])
+            .status()
+    } else {
+        Command::new("ar")
+            .args(&[
+                "crus",
+                ggml_metal_embed_library_path.to_str().unwrap(),
+                ggml_metal_embed_object_path.to_str().unwrap(),
+            ])
+            .status()
+    };
+    ar_status.expect("Failed to create static library from ggml-metal-embed object file");
 
     println!("cargo:rustc-link-lib=framework=Metal");
     println!("cargo:rustc-link-lib=framework=Foundation");
