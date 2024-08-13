@@ -197,6 +197,36 @@ impl LlamaContextParams {
         self.context_params.n_ubatch
     }
 
+    /// Use flash attention
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use llama_cpp_2::context::params::LlamaContextParams;
+    /// let params = LlamaContextParams::default()
+    ///     .with_flash_attn(true);
+    /// assert_eq!(params.flash_attn(), true);
+    /// ```
+    #[must_use]
+    pub fn with_flash_attn(mut self, enable: bool) -> Self {
+        self.context_params.flash_attn = enable;
+        self
+    }
+
+    /// Get whether flash attention is used
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use llama_cpp_2::context::params::LlamaContextParams;
+    /// let params = LlamaContextParams::default();
+    /// assert_eq!(params.flash_atten(), false);
+    /// ```
+    #[must_use]
+    pub fn flash_attn(&self) -> bool {
+        self.context_params.flash_attn
+    }
+
     /// Set the type of rope scaling.
     ///
     /// # Examples
