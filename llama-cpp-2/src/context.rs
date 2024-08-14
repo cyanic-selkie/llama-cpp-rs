@@ -30,6 +30,10 @@ pub struct LlamaContext<'a> {
     embeddings_enabled: bool,
 }
 
+unsafe impl<'a> Send for LlamaContext<'a> {}
+
+unsafe impl<'a> Sync for LlamaContext<'a> {}
+
 impl Debug for LlamaContext<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("LlamaContext")
