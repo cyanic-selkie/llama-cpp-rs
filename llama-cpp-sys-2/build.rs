@@ -269,21 +269,20 @@ impl ParseCallbacks for GGMLLinkRename {
     }
 }
 
+fn push_accelerate_flags(cx: &mut Build, cxx: &mut Build) {
+    cx.define("GGML_USE_ACCELERATE", None);
+    cxx.define("GGML_USE_ACCELERATE", None);
+    cx.define("ACCELERATE_NEW_LAPACK", None);
+    cxx.define("ACCELERATE_LAPACK_ILP64", None);
+    println!("cargo:rustc-link-lib=framework=Accelerate");
+}
+
 /// Add platform appropriate flags and definitions present in all compilation configurations.
 fn push_common_flags(cx: &mut Build, cxx: &mut Build) {
-    let opt_level = env::var("OPT_LEVEL")
-        .map(|x| {
-            x.parse::<u32>()
-                .expect("OPT_LEVEL should be a positive integer")
-        })
-        .unwrap_or_else(|_| 0);
-
     cx.static_flag(true)
-        .opt_level(opt_level)
         .cpp(false)
         .define("GGML_SCHED_MAX_COPIES", "4");
     cxx.static_flag(true)
-        .opt_level(opt_level)
         .cpp(true)
         .define("GGML_SCHED_MAX_COPIES", "4");
 
@@ -896,6 +895,7 @@ fn compile_ggml(mut cx: Build) {
         .file(ggml_src.join("ggml-backend.c"))
         .file(ggml_src.join("ggml-quants.c"))
         .file(ggml_src.join("ggml-aarch64.c"))
+        .flag("-fno-objc-arc")
         .compile("ggml");
 }
 
@@ -965,6 +965,10 @@ fn main() {
     }
 
     push_common_flags(&mut cx, &mut cxx);
+
+    if cfg!(feature = "accelerate") && (cfg!(target_os = "macos") || is_ios) {
+        push_accelerate_flags(&mut cx, &mut cxx);
+    }
 
     let featless_cxx = cxx.clone(); // mostly used for CUDA
 
