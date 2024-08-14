@@ -73,6 +73,10 @@ unsafe impl Send for LlamaModel {}
 
 unsafe impl Sync for LlamaModel {}
 
+unsafe impl Send for LlamaLoraAdapter {}
+
+unsafe impl Sync for LlamaLoraAdapter {}
+
 impl LlamaModel {
     /// get the number of tokens the model was trained on
     ///

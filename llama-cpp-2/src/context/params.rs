@@ -152,6 +152,19 @@ impl LlamaContextParams {
         self
     }
 
+    /// Get the `n_batch`
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use llama_cpp_2::context::params::LlamaContextParams;
+    /// let params = LlamaContextParams::default();
+    /// assert_eq!(params.n_batch(), 2048);
+    /// ```
+    #[must_use]
+    pub fn n_batch(&self) -> u32 {
+        self.context_params.n_batch
+    }
     /// Set the `n_ubatch`
     ///
     /// # Examples
@@ -167,20 +180,6 @@ impl LlamaContextParams {
     pub fn with_n_ubatch(mut self, n_ubatch: u32) -> Self {
         self.context_params.n_ubatch = n_ubatch;
         self
-    }
-
-    /// Get the `n_batch`
-    ///
-    /// # Examples
-    ///
-    /// ```rust
-    /// use llama_cpp_2::context::params::LlamaContextParams;
-    /// let params = LlamaContextParams::default();
-    /// assert_eq!(params.n_batch(), 2048);
-    /// ```
-    #[must_use]
-    pub fn n_batch(&self) -> u32 {
-        self.context_params.n_batch
     }
 
     /// Get the `n_ubatch`
